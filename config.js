@@ -1,8 +1,8 @@
-import dotenv from "dotenv";
-dotenv.config();
+require("dotenv").config();
 
-const { PORT = 8080 } = process.env;
+const { PORT = 8080, HOST = "0.0.0.0" } = process.env;
 
-export default {
+module.exports = {
   PORT,
+  HOST,
 };

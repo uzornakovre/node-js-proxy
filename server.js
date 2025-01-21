@@ -1,12 +1,12 @@
 const express = require("express");
 const app = express();
 
-const { PORT } = require("./config");
+const { PORT, HOST } = require("./config");
 
 app.get("/ping", (req, res) => {
-  res.send("Hello World");
+  res.send("pong");
 });
 
-app.listen(PORT, () => {
-  console.log(`pong`);
+app.listen(PORT, HOST, () => {
+  console.log(`Сервер запущен на порту ${PORT}`);
 });
