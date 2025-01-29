@@ -1,14 +1,21 @@
-// const express = require("express");
-// const app = express();
-
-const { PORT, HOST } = require("./config");
-
+const fs = require("fs");
+const https = require("https");
 const http = require("http");
 const httpProxy = require("http-proxy");
 
+const { PORT, HOST, PRIVKEY_PATH, CERT_PATH, CHAIN_PATH } = require("./config");
+
 const proxy = httpProxy.createProxyServer({});
 
-const server = http.createServer((req, res) => {
+const options = {
+  key: fs.readFileSync(PRIVKEY_PATH),
+  cert: fs.readFileSync(CERT_PATH),
+  ca: fs.readFileSync(CHAIN_PATH),
+};
+
+const server = https.createServer(options, (req, res) => {
+  console.log(`${req.method} ${req.url}`);
+
   proxy.web(req, res, { target: req.url, changeOrigin: true }, (err) => {
     console.error("Ошибка:", err);
     res.writeHead(502);
@@ -17,8 +24,11 @@ const server = http.createServer((req, res) => {
 });
 
 server.listen(PORT, HOST, () => {
-  console.log(`HTTP-прокси запущен на порту ${PORT}`);
+  console.log(`HTTPS-прокси запущен на порту ${PORT}`);
 });
+
+// const express = require("express");
+// const app = express();
 
 // app.get("/ping", (req, res) => {
 //   res.send("pong");
@@ -26,17 +36,4 @@ server.listen(PORT, HOST, () => {
 
 // app.listen(PORT, HOST, () => {
 //   console.log(`Сервер запущен на порту ${PORT}`);
-// });
-
-// const socks5 = require("socks5");
-
-// const server = socks5.createServer((info, accept, deny) => {
-//   const socket = accept(true);
-//   if (socket) {
-//     console.log("SOCKS5-соединение установлено:", info.dstAddr, info.dstPort);
-//   }
-// });
-
-// server.listen(PORT, HOST, () => {
-//   console.log(`SOCKS5-прокси-сервер запущен на порту ${PORT}`);
 // });
