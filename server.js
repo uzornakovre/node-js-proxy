@@ -3,26 +3,20 @@ const httpProxy = require("http-proxy");
 
 const { PORT, HOST } = require("./config");
 
-const proxy = httpProxy.createProxyServer({
-  secure: false,
-});
+const proxy = httpProxy.createProxyServer({ secure: false });
 
 const server = http.createServer((req, res) => {
   console.log(`${req.method} ${req.url}`);
 
-  const target = `${req.headers["x-original-scheme"] || "https"}://${
-    req.headers.host
-  }${req.url}`;
-
-  proxy.web(req, res, { target, changeOrigin: true }, (err) => {
+  proxy.web(req, res, { target: req.url, changeOrigin: true }, (err) => {
     console.error("Ошибка:", err);
     res.writeHead(502);
-    res.end("Прокси-сервер: ошибка соединения");
+    res.end("Ошибка прокси");
   });
 });
 
 server.listen(PORT, HOST, () => {
-  console.log(`HTTP-прокси запущен на порту ${PORT}`);
+  console.log(`HTTP-прокси работает на порту ${PORT}`);
 });
 
 // const fs = require("fs");
