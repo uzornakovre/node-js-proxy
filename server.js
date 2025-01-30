@@ -1,22 +1,35 @@
+const net = require("net");
 const http = require("http");
-const httpProxy = require("http-proxy");
 
 const { PORT, HOST } = require("./config");
 
-const proxy = httpProxy.createProxyServer({ secure: false });
-
+// HTTP-прокси для обычных запросов (GET, POST и т. д.)
 const server = http.createServer((req, res) => {
-  console.log(`${req.method} ${req.url}`);
+  res.writeHead(400);
+  res.end("Этот прокси поддерживает только CONNECT-запросы.");
+});
 
-  proxy.web(req, res, { target: req.url, changeOrigin: true }, (err) => {
-    console.error("Ошибка:", err);
-    res.writeHead(502);
-    res.end("Ошибка прокси");
+// HTTPS-прокси через метод CONNECT (TLS-туннелирование)
+server.on("connect", (req, clientSocket, head) => {
+  const { port, hostname } = new URL(`https://${req.url}`);
+
+  console.log(`Создание туннеля: ${hostname}:${port}`);
+
+  const serverSocket = net.connect(port || 443, hostname, () => {
+    clientSocket.write("HTTP/1.1 200 Connection Established\r\n\r\n");
+    serverSocket.write(head);
+    serverSocket.pipe(clientSocket);
+    clientSocket.pipe(serverSocket);
+  });
+
+  serverSocket.on("error", (err) => {
+    console.error("Ошибка CONNECT:", err);
+    clientSocket.end("HTTP/1.1 502 Bad Gateway\r\n\r\n");
   });
 });
 
 server.listen(PORT, HOST, () => {
-  console.log(`HTTP-прокси работает на порту ${PORT}`);
+  console.log(`HTTPS-прокси (CONNECT) запущен на порту ${PORT}`);
 });
 
 // const fs = require("fs");
