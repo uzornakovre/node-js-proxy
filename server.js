@@ -1,6 +1,6 @@
 const http = require("http");
 const httpProxy = require("http-proxy");
-
+const net = require("net");
 const { PORT, HOST, USERNAME, PASSWORD } = require("./config");
 
 const proxy = httpProxy.createProxyServer({});
@@ -18,24 +18,34 @@ const auth = (req) => {
   return user === USERNAME && pass === PASSWORD;
 };
 
+// Обработка ошибок для всех запросов
+const handleRequestError = (err, res) => {
+  console.error("Ошибка проксирования:", err);
+  res.writeHead(502);
+  res.end("Ошибка соединения через прокси");
+};
+
+// Основной HTTP сервер
 const server = http.createServer((req, res) => {
   console.log(`Запрос: ${req.method} ${req.url}`);
 
+  // Если авторизация не пройдена
   if (!auth(req)) {
     res.writeHead(407, { "Proxy-Authenticate": 'Basic realm="Proxy"' });
     return res.end("407 Proxy Authentication Required");
   }
 
+  // Прокси-запрос
   proxy.web(req, res, { target: req.url, changeOrigin: true }, (err) => {
-    console.error("Ошибка проксирования:", err);
-    res.writeHead(502);
-    res.end("Ошибка соединения через прокси");
+    handleRequestError(err, res);
   });
 });
 
+// Обработка CONNECT-запросов
 server.on("connect", (req, clientSocket, head) => {
   console.log(`CONNECT-запрос на ${req.url}`);
 
+  // Если авторизация не пройдена
   if (!auth(req)) {
     clientSocket.write(
       'HTTP/1.1 407 Proxy Authentication Required\r\nProxy-Authenticate: Basic realm="Proxy"\r\n\r\n'
@@ -44,17 +54,49 @@ server.on("connect", (req, clientSocket, head) => {
   }
 
   const { port, hostname } = new URL(`https://${req.url}`);
-  const serverSocket = require("net").connect(port || 443, hostname, () => {
+
+  // Создаем сокет для подключения к целевому серверу
+  const serverSocket = net.connect(port || 443, hostname, () => {
     clientSocket.write("HTTP/1.1 200 Connection Established\r\n\r\n");
     serverSocket.write(head);
     serverSocket.pipe(clientSocket);
     clientSocket.pipe(serverSocket);
   });
 
+  // Обработка ошибок сокета
   serverSocket.on("error", (err) => {
-    console.error("Ошибка CONNECT:", err);
-    clientSocket.end("HTTP/1.1 502 Bad Gateway\r\n\r\n");
+    console.error("Ошибка при соединении с целевым сервером:", err);
+    clientSocket.write("HTTP/1.1 502 Bad Gateway\r\n\r\n");
+    clientSocket.end();
   });
+
+  // Обработка ошибок клиента
+  clientSocket.on("error", (err) => {
+    console.error("Ошибка клиента:", err);
+    serverSocket.end();
+  });
+
+  // Закрытие сокетов
+  clientSocket.on("close", () => {
+    console.log("Клиентское соединение закрыто");
+    serverSocket.end();
+  });
+
+  serverSocket.on("close", () => {
+    console.log("Серверное соединение закрыто");
+    clientSocket.end();
+  });
+});
+
+// Обработка ошибок HTTP-сервера
+server.on("error", (err) => {
+  console.error("Ошибка HTTP-сервера:", err);
+});
+
+// Тайм-ауты для сервера и сокетов
+server.setTimeout(30000, () => {
+  console.log("Тайм-аут сервера");
+  server.close();
 });
 
 server.listen(PORT, HOST, () => {
