@@ -1,16 +1,29 @@
 const http = require("http");
 const httpProxy = require("http-proxy");
 
-const { PORT, HOST } = require("./config");
+const { PORT, HOST, USERNAME, PASSWORD } = require("./config");
 
 const proxy = httpProxy.createProxyServer({});
+
+const auth = (req) => {
+  const authHeader = req.headers["proxy-authorization"];
+  if (!authHeader) return false;
+
+  const base64Credentials = authHeader.split(" ")[1];
+  const credentials = Buffer.from(base64Credentials, "base64").toString(
+    "utf-8"
+  );
+  const [user, pass] = credentials.split(":");
+
+  return user === USERNAME && pass === PASSWORD;
+};
 
 const server = http.createServer((req, res) => {
   console.log(`Запрос: ${req.method} ${req.url}`);
 
-  if (!req.url.startsWith("http")) {
-    res.writeHead(400);
-    return res.end("Ошибка: некорректный URL");
+  if (!auth(req)) {
+    res.writeHead(407, { "Proxy-Authenticate": 'Basic realm="Proxy"' });
+    return res.end("407 Proxy Authentication Required");
   }
 
   proxy.web(req, res, { target: req.url, changeOrigin: true }, (err) => {
@@ -22,6 +35,13 @@ const server = http.createServer((req, res) => {
 
 server.on("connect", (req, clientSocket, head) => {
   console.log(`CONNECT-запрос на ${req.url}`);
+
+  if (!auth(req)) {
+    clientSocket.write(
+      'HTTP/1.1 407 Proxy Authentication Required\r\nProxy-Authenticate: Basic realm="Proxy"\r\n\r\n'
+    );
+    return clientSocket.end();
+  }
 
   const { port, hostname } = new URL(`https://${req.url}`);
   const serverSocket = require("net").connect(port || 443, hostname, () => {
@@ -38,38 +58,5 @@ server.on("connect", (req, clientSocket, head) => {
 });
 
 server.listen(PORT, HOST, () => {
-  console.log(`HTTP/HTTPS-прокси работает на ${HOST}:${PORT}`);
+  console.log(`HTTP/HTTPS-прокси с авторизацией работает на ${HOST}:${PORT}`);
 });
-
-// const fs = require("fs");
-// const https = require("https");
-// const http = require("http");
-// const httpProxy = require("http-proxy");
-
-// const { PORT, HOST, PRIVKEY_PATH, CERT_PATH, CHAIN_PATH } = require("./config");
-
-// const proxy = httpProxy.createProxyServer({});
-
-// const options = {
-//   key: fs.readFileSync(PRIVKEY_PATH),
-//   cert: fs.readFileSync(CERT_PATH),
-//   ca: fs.readFileSync(CHAIN_PATH),
-// };
-
-// const server = https.createServer(options, (req, res) => {
-//   console.log(`${req.method} ${req.url}`);
-
-//   proxy.web(req, res, { target: req.url, changeOrigin: true }, (err) => {
-//     console.error("Ошибка:", err);
-//     res.writeHead(502);
-//     res.end("Прокси-сервер: ошибка соединения");
-//   });
-// });
-
-// server.listen(PORT, HOST, () => {
-//   console.log(`HTTPS-прокси запущен на порту ${PORT}`);
-// });
-
-// PRIVKEY_PATH='/etc/letsencrypt/live/uzornakovre.freemyip.com/privkey.pem'
-// CERT_PATH='/etc/letsencrypt/live/uzornakovre.freemyip.com/cert.pem'
-// CHAIN_PATH='/etc/letsencrypt/live/uzornakovre.freemyip.com/chain.pem'

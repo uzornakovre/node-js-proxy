@@ -6,6 +6,8 @@ const {
   PRIVKEY_PATH,
   CERT_PATH,
   CHAIN_PATH,
+  USERNAME,
+  PASSWORD,
 } = process.env;
 
 module.exports = {
@@ -14,4 +16,6 @@ module.exports = {
   PRIVKEY_PATH,
   CERT_PATH,
   CHAIN_PATH,
+  USERNAME,
+  PASSWORD,
 };
