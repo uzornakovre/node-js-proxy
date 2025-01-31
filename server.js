@@ -7,13 +7,18 @@ const proxy = httpProxy.createProxyServer({});
 
 const auth = (req) => {
   const authHeader = req.headers["proxy-authorization"];
-  if (!authHeader) return false;
+  if (!authHeader) {
+    console.log("Нет заголовка Proxy-Authorization");
+    return false;
+  }
 
   const base64Credentials = authHeader.split(" ")[1];
   const credentials = Buffer.from(base64Credentials, "base64").toString(
     "utf-8"
   );
   const [user, pass] = credentials.split(":");
+
+  console.log(`Пытаемся авторизовать пользователя: ${user}`);
 
   return user === USERNAME && pass === PASSWORD;
 };
@@ -45,17 +50,15 @@ const server = http.createServer((req, res) => {
 server.on("connect", (req, clientSocket, head) => {
   console.log(`CONNECT-запрос на ${req.url}`);
 
-  // Если авторизация не пройдена
   if (!auth(req)) {
+    console.log("Не прошли авторизацию. Отправляем 407.");
     clientSocket.write(
       'HTTP/1.1 407 Proxy Authentication Required\r\nProxy-Authenticate: Basic realm="Proxy"\r\n\r\n'
     );
-    return clientSocket.end();
+    return clientSocket.end(); // Завершаем соединение с клиентом
   }
 
   const { port, hostname } = new URL(`https://${req.url}`);
-
-  // Создаем сокет для подключения к целевому серверу
   const serverSocket = net.connect(port || 443, hostname, () => {
     clientSocket.write("HTTP/1.1 200 Connection Established\r\n\r\n");
     serverSocket.write(head);
@@ -63,20 +66,17 @@ server.on("connect", (req, clientSocket, head) => {
     clientSocket.pipe(serverSocket);
   });
 
-  // Обработка ошибок сокета
   serverSocket.on("error", (err) => {
     console.error("Ошибка при соединении с целевым сервером:", err);
     clientSocket.write("HTTP/1.1 502 Bad Gateway\r\n\r\n");
     clientSocket.end();
   });
 
-  // Обработка ошибок клиента
   clientSocket.on("error", (err) => {
     console.error("Ошибка клиента:", err);
     serverSocket.end();
   });
 
-  // Закрытие сокетов
   clientSocket.on("close", () => {
     console.log("Клиентское соединение закрыто");
     serverSocket.end();
