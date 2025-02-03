@@ -4,43 +4,27 @@ const net = require("net");
 const { PORT, HOST, USERNAME, PASSWORD } = require("./config");
 
 const proxy = httpProxy.createProxyServer({});
-const MAX_CONNECTIONS = 100; // Максимальное количество активных соединений
-let activeConnections = 0; // Счётчик активных соединений
+const MAX_CONNECTIONS = 100;
+let activeConnections = 0;
 
 // Функция проверки авторизации
 const auth = (req) => {
   const authHeader = req.headers["proxy-authorization"];
-  if (!authHeader) {
-    console.log("Нет заголовка Proxy-Authorization");
-    return false;
-  }
-
-  const base64Credentials = authHeader.split(" ")[1];
-  const credentials = Buffer.from(base64Credentials, "base64").toString(
+  if (!authHeader) return false;
+  const credentials = Buffer.from(authHeader.split(" ")[1], "base64").toString(
     "utf-8"
   );
   const [user, pass] = credentials.split(":");
-
-  console.log(`Пытаемся авторизовать пользователя: ${user}`);
   return user === USERNAME && pass === PASSWORD;
 };
 
-// Обработка ошибок проксирования
-const handleRequestError = (err, res) => {
-  console.error("Ошибка проксирования:", err);
-  if (!res.headersSent) {
-    res.writeHead(502);
-  }
-  res.end("Ошибка соединения через прокси");
+// Функция закрытия соединений
+const closeSockets = (clientSocket, serverSocket) => {
+  if (clientSocket && !clientSocket.destroyed) clientSocket.destroy();
+  if (serverSocket && !serverSocket.destroyed) serverSocket.destroy();
 };
 
-// Обработка тайм-аутов
-const handleTimeout = (socket, socketType) => {
-  console.log(`Тайм-аут на ${socketType} сокете`);
-  socket.destroy(); // Закрываем соединение принудительно
-};
-
-// Создаем HTTP сервер
+// Создаем HTTP-сервер
 const server = http.createServer((req, res) => {
   console.log(`Запрос: ${req.method} ${req.url}`);
 
@@ -50,16 +34,17 @@ const server = http.createServer((req, res) => {
   }
 
   proxy.web(req, res, { target: req.url, changeOrigin: true }, (err) => {
-    handleRequestError(err, res);
+    console.error("Ошибка проксирования:", err);
+    if (!res.headersSent) res.writeHead(502);
+    res.end("Ошибка соединения через прокси");
   });
 });
 
-// Обработка CONNECT-запросов для HTTPS
+// Обрабатываем CONNECT-запросы (HTTPS)
 server.on("connect", (req, clientSocket, head) => {
   console.log(`CONNECT-запрос на ${req.url}`);
 
   if (!auth(req)) {
-    console.log("Не прошли авторизацию. Отправляем 407.");
     clientSocket.write(
       'HTTP/1.1 407 Proxy Authentication Required\r\nProxy-Authenticate: Basic realm="Proxy"\r\n\r\n'
     );
@@ -68,9 +53,6 @@ server.on("connect", (req, clientSocket, head) => {
 
   const [hostname, port] = req.url.split(":");
   const targetPort = parseInt(port, 10) || 443;
-
-  console.log(`Перенаправляем соединение на ${hostname}:${targetPort}`);
-
   const serverSocket = net.connect(targetPort, hostname, () => {
     clientSocket.write("HTTP/1.1 200 Connection Established\r\n\r\n");
     serverSocket.write(head);
@@ -78,62 +60,46 @@ server.on("connect", (req, clientSocket, head) => {
     serverSocket.pipe(clientSocket);
   });
 
-  // Обработка ошибок соединения
-  const closeSockets = () => {
-    if (!clientSocket.destroyed) clientSocket.destroy();
-    if (!serverSocket.destroyed) serverSocket.destroy();
-  };
-
+  // Закрываем соединения в случае ошибок
   serverSocket.on("error", (err) => {
-    console.error("Ошибка при соединении с целевым сервером:", err);
+    console.error("Ошибка сервера:", err);
     clientSocket.write("HTTP/1.1 502 Bad Gateway\r\n\r\n");
-    closeSockets();
+    closeSockets(clientSocket, serverSocket);
   });
 
   clientSocket.on("error", (err) => {
     console.error("Ошибка клиента:", err);
-    closeSockets();
+    closeSockets(clientSocket, serverSocket);
   });
 
-  clientSocket.on("close", () => {
-    console.log("Клиентское соединение закрыто");
-    closeSockets();
-  });
+  clientSocket.on("close", () => closeSockets(clientSocket, serverSocket));
+  serverSocket.on("close", () => closeSockets(clientSocket, serverSocket));
 
-  serverSocket.on("close", () => {
-    console.log("Серверное соединение закрыто");
-    closeSockets();
-  });
+  // Добавляем тайм-аут для закрытия неактивных соединений
+  const timeout = setTimeout(() => {
+    console.log("Принудительное закрытие соединений (тайм-аут)");
+    closeSockets(clientSocket, serverSocket);
+  }, 30000);
 
-  clientSocket.setTimeout(30000, () => handleTimeout(clientSocket, "клиент"));
-  serverSocket.setTimeout(30000, () => handleTimeout(serverSocket, "сервер"));
+  timeout.unref(); // Не держит процесс в памяти
 });
 
-// Ограничение количества активных соединений
+// Ограничиваем количество соединений
 server.on("connection", (socket) => {
   if (activeConnections >= MAX_CONNECTIONS) {
-    console.log("Превышено количество активных соединений. Отключаем новое.");
-    socket.destroy();
-  } else {
-    activeConnections++;
-    socket.on("close", () => {
-      activeConnections--;
-    });
+    console.log("Превышено количество соединений, закрываем новое");
+    return socket.destroy();
   }
+
+  activeConnections++;
+  socket.on("close", () => activeConnections--);
 });
 
-// Обработка ошибок HTTP-сервера
-server.on("error", (err) => {
-  console.error("Ошибка HTTP-сервера:", err);
-});
+// Убираем общий тайм-аут сервера, чтобы он не закрывал активные соединения
+// server.setTimeout(30000); <-- Больше не нужен
 
-// Тайм-аут для сервера
-server.setTimeout(30000, () => {
-  console.log("Тайм-аут сервера");
-  server.close();
-});
+server.on("error", (err) => console.error("Ошибка сервера:", err));
 
-// Запуск прокси-сервера
 server.listen(PORT, HOST, () => {
-  console.log(`HTTP/HTTPS-прокси с авторизацией работает на ${HOST}:${PORT}`);
+  console.log(`Прокси-сервер работает на ${HOST}:${PORT}`);
 });
