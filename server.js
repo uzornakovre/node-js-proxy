@@ -28,14 +28,16 @@ const auth = (req) => {
 // Обработка ошибок проксирования
 const handleRequestError = (err, res) => {
   console.error("Ошибка проксирования:", err);
-  res.writeHead(502);
+  if (!res.headersSent) {
+    res.writeHead(502);
+  }
   res.end("Ошибка соединения через прокси");
 };
 
 // Обработка тайм-аутов
 const handleTimeout = (socket, socketType) => {
   console.log(`Тайм-аут на ${socketType} сокете`);
-  socket.end();
+  socket.destroy(); // Закрываем соединение принудительно
 };
 
 // Создаем HTTP сервер
@@ -65,41 +67,46 @@ server.on("connect", (req, clientSocket, head) => {
   }
 
   const [hostname, port] = req.url.split(":");
-  const targetPort = port || 443;
+  const targetPort = parseInt(port, 10) || 443;
 
   console.log(`Перенаправляем соединение на ${hostname}:${targetPort}`);
 
   const serverSocket = net.connect(targetPort, hostname, () => {
     clientSocket.write("HTTP/1.1 200 Connection Established\r\n\r\n");
     serverSocket.write(head);
-    clientSocket.pipe(serverSocket).pipe(clientSocket);
+    clientSocket.pipe(serverSocket);
+    serverSocket.pipe(clientSocket);
   });
+
+  // Обработка ошибок соединения
+  const closeSockets = () => {
+    if (!clientSocket.destroyed) clientSocket.destroy();
+    if (!serverSocket.destroyed) serverSocket.destroy();
+  };
 
   serverSocket.on("error", (err) => {
     console.error("Ошибка при соединении с целевым сервером:", err);
-    clientSocket.end("HTTP/1.1 502 Bad Gateway\r\n\r\n");
+    clientSocket.write("HTTP/1.1 502 Bad Gateway\r\n\r\n");
+    closeSockets();
   });
 
   clientSocket.on("error", (err) => {
     console.error("Ошибка клиента:", err);
-    serverSocket.end();
+    closeSockets();
   });
 
   clientSocket.on("close", () => {
     console.log("Клиентское соединение закрыто");
-    serverSocket.end();
+    closeSockets();
   });
 
   serverSocket.on("close", () => {
     console.log("Серверное соединение закрыто");
-    clientSocket.end();
+    closeSockets();
   });
 
-  clientSocket.setTimeout(30000);
-  serverSocket.setTimeout(30000);
-
-  clientSocket.on("timeout", () => handleTimeout(clientSocket, "клиент"));
-  serverSocket.on("timeout", () => handleTimeout(serverSocket, "сервер"));
+  clientSocket.setTimeout(30000, () => handleTimeout(clientSocket, "клиент"));
+  serverSocket.setTimeout(30000, () => handleTimeout(serverSocket, "сервер"));
 });
 
 // Ограничение количества активных соединений
