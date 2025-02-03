@@ -18,10 +18,16 @@ const auth = (req) => {
   return user === USERNAME && pass === PASSWORD;
 };
 
-// Функция закрытия соединений
+// Функция для безопасного закрытия сокетов
 const closeSockets = (clientSocket, serverSocket) => {
-  if (clientSocket && !clientSocket.destroyed) clientSocket.destroy();
-  if (serverSocket && !serverSocket.destroyed) serverSocket.destroy();
+  if (clientSocket && !clientSocket.destroyed) {
+    clientSocket.destroy();
+    console.log("Клиентский сокет закрыт");
+  }
+  if (serverSocket && !serverSocket.destroyed) {
+    serverSocket.destroy();
+    console.log("Серверный сокет закрыт");
+  }
 };
 
 // Создаем HTTP-сервер
@@ -60,7 +66,7 @@ server.on("connect", (req, clientSocket, head) => {
     serverSocket.pipe(clientSocket);
   });
 
-  // Закрываем соединения в случае ошибок
+  // Закрытие соединений в случае ошибок
   serverSocket.on("error", (err) => {
     console.error("Ошибка сервера:", err);
     clientSocket.write("HTTP/1.1 502 Bad Gateway\r\n\r\n");
@@ -75,13 +81,27 @@ server.on("connect", (req, clientSocket, head) => {
   clientSocket.on("close", () => closeSockets(clientSocket, serverSocket));
   serverSocket.on("close", () => closeSockets(clientSocket, serverSocket));
 
-  // Добавляем тайм-аут для закрытия неактивных соединений
+  // Обработка ошибок сокетов
+  serverSocket.on("error", (err) => {
+    if (err.code === "ECONNRESET" || err.code === "EPIPE") {
+      console.error("Ошибка при передаче данных между сокетами:", err);
+      closeSockets(clientSocket, serverSocket);
+    }
+  });
+
+  clientSocket.on("error", (err) => {
+    if (err.code === "ECONNRESET" || err.code === "EPIPE") {
+      console.error("Ошибка при передаче данных между сокетами:", err);
+      closeSockets(clientSocket, serverSocket);
+    }
+  });
+
+  // Добавляем тайм-аут для соединений
   const timeout = setTimeout(() => {
     console.log("Принудительное закрытие соединений (тайм-аут)");
     closeSockets(clientSocket, serverSocket);
   }, 30000);
-
-  timeout.unref(); // Не держит процесс в памяти
+  timeout.unref(); // Таймер не будет блокировать процесс
 });
 
 // Ограничиваем количество соединений
@@ -95,8 +115,8 @@ server.on("connection", (socket) => {
   socket.on("close", () => activeConnections--);
 });
 
-// Убираем общий тайм-аут сервера, чтобы он не закрывал активные соединения
-// server.setTimeout(30000); <-- Больше не нужен
+// Убираем общий тайм-аут сервера
+// server.setTimeout(30000); <-- больше не нужен
 
 server.on("error", (err) => console.error("Ошибка сервера:", err));
 
