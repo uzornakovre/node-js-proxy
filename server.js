@@ -39,11 +39,16 @@ const server = http.createServer((req, res) => {
     return res.end("407 Proxy Authentication Required");
   }
 
-  proxy.web(req, res, { target: req.url, changeOrigin: true }, (err) => {
-    console.error("Ошибка проксирования:", err);
-    if (!res.headersSent) res.writeHead(502);
-    res.end("Ошибка соединения через прокси");
-  });
+  proxy.web(
+    req,
+    res,
+    { target: req.url, changeOrigin: true, followRedirects: true },
+    (err) => {
+      console.error("Ошибка проксирования:", err);
+      if (!res.headersSent) res.writeHead(502);
+      res.end("Ошибка соединения через прокси");
+    }
+  );
 });
 
 // Обрабатываем CONNECT-запросы (HTTPS)
