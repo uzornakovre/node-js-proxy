@@ -4,7 +4,7 @@ const net = require("net");
 const { PORT, HOST, USERNAME, PASSWORD } = require("./config");
 
 const proxy = httpProxy.createProxyServer({});
-const MAX_CONNECTIONS = 100;
+const MAX_CONNECTIONS = 150;
 let activeConnections = 0;
 
 // Функция проверки авторизации
