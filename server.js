@@ -105,7 +105,7 @@ server.on("connect", (req, clientSocket, head) => {
   const timeout = setTimeout(() => {
     console.log("Принудительное закрытие соединений (тайм-аут)");
     closeSockets(clientSocket, serverSocket);
-  }, 30000);
+  }, 100000);
   timeout.unref(); // Таймер не будет блокировать процесс
 });
 
