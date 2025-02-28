@@ -1,6 +1,7 @@
 const http = require("http");
 const httpProxy = require("http-proxy");
 const net = require("net");
+const tls = require("tls");
 const { PORT, HOST, USERNAME, PASSWORD } = require("./config");
 
 const proxy = httpProxy.createProxyServer({});
@@ -64,14 +65,21 @@ server.on("connect", (req, clientSocket, head) => {
 
   const [hostname, port] = req.url.split(":");
   const targetPort = parseInt(port, 10) || 443;
-  const serverSocket = net.connect(targetPort, hostname, () => {
-    clientSocket.write("HTTP/1.1 200 Connection Established\r\n\r\n");
-    serverSocket.write(head);
-    clientSocket.pipe(serverSocket);
-    serverSocket.pipe(clientSocket);
-  });
 
-  // Закрытие соединений в случае ошибок
+  const serverSocket = tls.connect(
+    {
+      host: hostname,
+      port: targetPort,
+      servername: hostname, // Важно для SNI
+      ALPNProtocols: ["h2", "http/1.1"], // Добавляем поддержку HTTP/2
+    },
+    () => {
+      clientSocket.write("HTTP/1.1 200 Connection Established\r\n\r\n");
+      clientSocket.pipe(serverSocket);
+      serverSocket.pipe(clientSocket);
+    }
+  );
+
   serverSocket.on("error", (err) => {
     console.error("Ошибка сервера:", err);
     clientSocket.write("HTTP/1.1 502 Bad Gateway\r\n\r\n");
@@ -81,24 +89,6 @@ server.on("connect", (req, clientSocket, head) => {
   clientSocket.on("error", (err) => {
     console.error("Ошибка клиента:", err);
     closeSockets(clientSocket, serverSocket);
-  });
-
-  clientSocket.on("close", () => closeSockets(clientSocket, serverSocket));
-  serverSocket.on("close", () => closeSockets(clientSocket, serverSocket));
-
-  // Обработка ошибок сокетов
-  serverSocket.on("error", (err) => {
-    if (err.code === "ECONNRESET" || err.code === "EPIPE") {
-      console.error("Ошибка при передаче данных между сокетами:", err);
-      closeSockets(clientSocket, serverSocket);
-    }
-  });
-
-  clientSocket.on("error", (err) => {
-    if (err.code === "ECONNRESET" || err.code === "EPIPE") {
-      console.error("Ошибка при передаче данных между сокетами:", err);
-      closeSockets(clientSocket, serverSocket);
-    }
   });
 
   // Добавляем тайм-аут для соединений
