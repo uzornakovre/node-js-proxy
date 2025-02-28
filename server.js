@@ -125,6 +125,6 @@ server.on("connection", (socket) => {
 
 server.on("error", (err) => console.error("Ошибка сервера:", err));
 
-server.listen(PORT, HOST, () => {
+server.listen(PORT, "::", () => {
   console.log(`Прокси-сервер работает на ${HOST}:${PORT}`);
 });
