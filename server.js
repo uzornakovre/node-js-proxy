@@ -1,4 +1,5 @@
 const http = require("http");
+const http2 = require("http2"); // Для HTTP/2
 const httpProxy = require("http-proxy");
 const net = require("net");
 const { PORT, HOST, USERNAME, PASSWORD } = require("./config");
@@ -30,8 +31,8 @@ const closeSockets = (clientSocket, serverSocket) => {
   }
 };
 
-// Создаем HTTP-сервер
-const server = http.createServer((req, res) => {
+// Создаем HTTP/2 сервер
+const server = http2.createServer((req, res) => {
   console.log(`Запрос: ${req.method} ${req.url}`);
 
   if (!auth(req)) {
@@ -51,7 +52,7 @@ const server = http.createServer((req, res) => {
   );
 });
 
-// Обрабатываем CONNECT-запросы (HTTPS)
+// Обрабатываем CONNECT-запросы (HTTPS / WebSocket)
 server.on("connect", (req, clientSocket, head) => {
   console.log(`CONNECT-запрос на ${req.url}`);
 
@@ -71,7 +72,7 @@ server.on("connect", (req, clientSocket, head) => {
     serverSocket.pipe(clientSocket);
   });
 
-  // Закрытие соединений в случае ошибок
+  // Обработка ошибок сокетов
   serverSocket.on("error", (err) => {
     console.error("Ошибка сервера:", err);
     clientSocket.write("HTTP/1.1 502 Bad Gateway\r\n\r\n");
@@ -85,21 +86,6 @@ server.on("connect", (req, clientSocket, head) => {
 
   clientSocket.on("close", () => closeSockets(clientSocket, serverSocket));
   serverSocket.on("close", () => closeSockets(clientSocket, serverSocket));
-
-  // Обработка ошибок сокетов
-  serverSocket.on("error", (err) => {
-    if (err.code === "ECONNRESET" || err.code === "EPIPE") {
-      console.error("Ошибка при передаче данных между сокетами:", err);
-      closeSockets(clientSocket, serverSocket);
-    }
-  });
-
-  clientSocket.on("error", (err) => {
-    if (err.code === "ECONNRESET" || err.code === "EPIPE") {
-      console.error("Ошибка при передаче данных между сокетами:", err);
-      closeSockets(clientSocket, serverSocket);
-    }
-  });
 
   // Добавляем тайм-аут для соединений
   const timeout = setTimeout(() => {
@@ -125,6 +111,7 @@ server.on("connection", (socket) => {
 
 server.on("error", (err) => console.error("Ошибка сервера:", err));
 
+// Запускаем сервер
 server.listen(PORT, "::", () => {
   console.log(`Прокси-сервер работает на ${HOST}:${PORT}`);
 });
