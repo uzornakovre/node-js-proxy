@@ -1,7 +1,7 @@
 const http = require("http");
 const httpProxy = require("http-proxy");
 const net = require("net");
-const { PORT, HOST, USERNAME, PASSWORD } = require("./config");
+const { PORT, HOST, USERNAME, PASSWORD, USER_LIST } = require("./config");
 
 const proxy = httpProxy.createProxyServer({});
 const MAX_CONNECTIONS = 150;
@@ -15,7 +15,12 @@ const auth = (req) => {
     "utf-8"
   );
   const [user, pass] = credentials.split(":");
-  return user === USERNAME && pass === PASSWORD;
+
+  console.log(`Пользователь ${user} прошел авторизацию.`);
+
+  return JSON.parse(USER_LIST).some(
+    (usr) => usr.name === user && usr.password === pass
+  );
 };
 
 // Функция для безопасного закрытия сокетов

@@ -9,6 +9,7 @@ const {
   CHAIN_PATH,
   USERNAME,
   PASSWORD,
+  USER_LIST,
 } = process.env;
 
 module.exports = {
@@ -20,4 +21,5 @@ module.exports = {
   CHAIN_PATH,
   USERNAME,
   PASSWORD,
+  USER_LIST
 };
